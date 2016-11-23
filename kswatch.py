@@ -148,7 +148,7 @@ def pledge_menu(rewards):
             continue
 
 
-def push_message(message):
+def push_message(message, url):
     import httplib, urllib
     conn = httplib.HTTPSConnection("api.pushover.net:443")
     conn.request("POST", "/1/messages.json",
@@ -157,6 +157,7 @@ def push_message(message):
                      "user": USER_KEY,
                      "priority": PRIORITY,
                      "message": message,
+                     "url": url,
                  }), {"Content-type": "application/x-www-form-urlencoded"})
     conn.getresponse()
 
@@ -203,7 +204,7 @@ for s in selected:
     print s[2]
 
 print '\nSending test push to make sure everything is OK'
-push_message('This is a Test!')
+push_message('This is a Test!', url)
 
 print '\nWatching...'
 while True:
@@ -211,7 +212,7 @@ while True:
         if not s[1] in [r[1] for r in rewards]:
             print '%s - Reward available!' % time.strftime('%B %d, %Y %I:%M %p')
             print s[2]
-            push_message('Kickstarter Reward available!')
+            push_message('Kickstarter Reward available!', url)
             selected = [x for x in selected if x != s]  # Remove the pledge we just found
             if not selected:  # If there are no more pledges to check, then exit
                 time.sleep(10)  # Give the web browser time to open
