@@ -28,7 +28,10 @@ import os
 import time
 import urllib2
 import HTMLParser
-import webbrowser
+
+USER_KEY = "USER_KEY_HERE"
+APP_TOKEN = "APP_TOKEN_HERE"
+PRIORITY = 1
 
 # Parse the pledge HTML page
 #
@@ -47,13 +50,15 @@ import webbrowser
 #
 # The 'rewards' dictionary uses the reward value as a key, and
 # (status, remaining) as the value.
+
+
 class KickstarterHTMLParser(HTMLParser.HTMLParser):
     def __init__(self):
         HTMLParser.HTMLParser.__init__(self)
-        self.in_li_block = False    # True == we're inside an <li class='...'> block
-        self.in_desc_block = False # True == we're inside a <p class="description short"> block
+        self.in_li_block = False  # True == we're inside an <li class='...'> block
+        self.in_desc_block = False  # True == we're inside a <p class="description short"> block
 
-    def process(self, url) :
+    def process(self, url):
         while True:
             try:
                 f = urllib2.urlopen(url)
@@ -71,7 +76,7 @@ class KickstarterHTMLParser(HTMLParser.HTMLParser):
         html = unicode(f.read(), 'utf-8')
         f.close()
         self.rewards = []
-        self.feed(html)   # feed() starts the HTMLParser parsing
+        self.feed(html)  # feed() starts the HTMLParser parsing
         return self.rewards
 
     def handle_starttag(self, tag, attributes):
@@ -86,17 +91,17 @@ class KickstarterHTMLParser(HTMLParser.HTMLParser):
         # The pledge description is in a 'h3' block that has a 'class'
         # attribute of 'pledge__title'.
         if self.in_li_block and 'pledge__title' in attrs['class']:
-                self.in_desc_block = True
+            self.in_desc_block = True
 
         # Extract the pledge amount (the cost)
         if self.in_li_block and tag == 'input' and 'pledge__radio' in attrs['class']:
             # remove everything except the actual number
-            amount = attrs['title'].encode('ascii','ignore')
+            amount = attrs['title'].encode('ascii', 'ignore')
             nondigits = amount.translate(None, '0123456789.')
             amount = amount.translate(None, nondigits)
             # Convert the value into a float
             self.value = float(amount)
-            self.ident = attrs['id']    # Save the reward ID
+            self.ident = attrs['id']  # Save the reward ID
 
         # We only care about certain kinds of reward levels -- those that
         # are limited.
@@ -108,18 +113,19 @@ class KickstarterHTMLParser(HTMLParser.HTMLParser):
         if tag == 'li':
             if self.in_li_block:
                 self.rewards.append((self.value,
-                    self.ident,
-                    ' '.join(self.description.split())))
+                                     self.ident,
+                                     ' '.join(self.description.split())))
             self.in_li_block = False
         if tag == 'h3':
             self.in_desc_block = False
 
     def handle_data(self, data):
         if self.in_desc_block:
-            self.description += self.unescape(data).encode('ascii','ignore')
+            self.description += self.unescape(data).encode('ascii', 'ignore')
 
     def result(self):
         return self.rewards
+
 
 def pledge_menu(rewards):
     import re
@@ -141,6 +147,20 @@ def pledge_menu(rewards):
         except (IndexError, NameError, SyntaxError):
             continue
 
+
+def push_message(message):
+    import httplib, urllib
+    conn = httplib.HTTPSConnection("api.pushover.net:443")
+    conn.request("POST", "/1/messages.json",
+                 urllib.urlencode({
+                     "token": APP_TOKEN,
+                     "user": USER_KEY,
+                     "priority": PRIORITY,
+                     "message": message,
+                 }), {"Content-type": "application/x-www-form-urlencoded"})
+    conn.getresponse()
+
+
 if len(sys.argv) < 2:
     print 'Usage: %s project-url [cost-of-pledge]' % os.path.basename(__file__)
     print 'Where project-url is the URL of the Kickstarter project, and cost-of-pledge'
@@ -151,11 +171,11 @@ if len(sys.argv) < 2:
 
 # Generate the URL
 url = sys.argv[1].split('?', 1)[0]  # drop the stuff after the ?
-url += '/pledge/new' # we want the pledge-editing page
-pledges = None   # The pledge amounts on the command line
-ids = None       # A list of IDs of the pledge levels
+url += '/pledge/new'  # we want the pledge-editing page
+pledges = None  # The pledge amounts on the command line
+ids = None  # A list of IDs of the pledge levels
 selected = None  # A list of selected pledge levels
-rewards = None   # A list of valid reward levels
+rewards = None  # A list of valid reward levels
 if len(sys.argv) > 2:
     pledges = map(float, sys.argv[2:])
 
@@ -178,19 +198,25 @@ if not selected:
     print 'No reward selected.'
     sys.exit(0)
 
+print '\nSelected rewards:'
+for s in selected:
+    print s[2]
+
+print '\nSending test push to make sure everything is OK'
+push_message('This is a Test!')
+
+print '\nWatching...'
 while True:
     for s in selected:
         if not s[1] in [r[1] for r in rewards]:
             print '%s - Reward available!' % time.strftime('%B %d, %Y %I:%M %p')
             print s[2]
-            webbrowser.open_new_tab(url)
-            selected = [x for x in selected if x != s]   # Remove the pledge we just found
-            if not selected:     # If there are no more pledges to check, then exit
-                time.sleep(10)   # Give the web browser time to open
+            push_message('Kickstarter Reward available!')
+            selected = [x for x in selected if x != s]  # Remove the pledge we just found
+            if not selected:  # If there are no more pledges to check, then exit
+                time.sleep(10)  # Give the web browser time to open
                 sys.exit(0)
             break
     time.sleep(60)
 
     rewards = ks.process(url)
-
-
