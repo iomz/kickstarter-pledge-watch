@@ -28,6 +28,7 @@ import os
 import time
 import urllib2
 import HTMLParser
+from optparse import OptionParser
 
 USER_KEY = "USER_KEY_HERE"
 APP_TOKEN = "APP_TOKEN_HERE"
@@ -126,28 +127,6 @@ class KickstarterHTMLParser(HTMLParser.HTMLParser):
     def result(self):
         return self.rewards
 
-
-def pledge_menu(rewards):
-    import re
-
-    count = len(rewards)
-
-    # If there is only one qualifying pledge level, then just select it
-    if count == 1:
-        return rewards
-
-    for i in xrange(count):
-        print '%u. $%u %s' % (i + 1, rewards[i][0], rewards[i][2][:70])
-
-    while True:
-        try:
-            ans = raw_input('\nSelect pledge levels: ')
-            numbers = map(int, ans.split())
-            return [rewards[i - 1] for i in numbers]
-        except (IndexError, NameError, SyntaxError):
-            continue
-
-
 def push_message(message, url):
     import httplib, urllib
     conn = httplib.HTTPSConnection("api.pushover.net:443")
@@ -161,24 +140,56 @@ def push_message(message, url):
                  }), {"Content-type": "application/x-www-form-urlencoded"})
     conn.getresponse()
 
+def pledge_menu(rewards):
+    import re
 
-if len(sys.argv) < 2:
-    print 'Usage: %s project-url [cost-of-pledge]' % os.path.basename(__file__)
-    print 'Where project-url is the URL of the Kickstarter project, and cost-of-pledge'
-    print 'is the cost of the target pledge. If cost-of-pledge is not specified, then'
-    print 'a menu of pledges is shown.  Specify cost-of-pledge only if that amount'
-    print 'is unique among pledges.  Only restricted pledges are supported.'
+    count = len(rewards)
+
+    # If there is only one qualifying pledge level, then just select it
+    if count == 1:
+        print 'Automatically selecting the only limited award available:'
+        print '$%u %s' % (rewards[0][0], rewards[0][2][:74])
+        return rewards
+
+    for i in xrange(count):
+        print '%u. $%u %s' % (i + 1, rewards[i][0], rewards[i][2][:70])
+
+    while True:
+        try:
+            ans = raw_input('\nSelect pledge levels: ')
+            numbers = map(int, ans.split())
+            return [rewards[i - 1] for i in numbers]
+        except (IndexError, NameError, SyntaxError):
+            continue
+
+parser = OptionParser(usage="usage: %prog [options] project-url [cost-of-pledge ...]\n"
+                      "project-url is the URL of the Kickstarter project\n"
+                      "cost-of-pledge is the cost of the target pledge.\n"
+                      "If cost-of-pledge is not specified, then a menu of pledges is shown.\n"
+                      "Specify cost-of-pledge only if that amount is unique among pledges.\n"
+                      "Only restricted pledges are supported.")
+parser.add_option("-d", dest="delay",
+    help="delay, in minutes, between each check (default is 1)",
+    type="int", default=1)
+parser.add_option("-v", dest="verbose",
+    help="print a message before each delay",
+    action="store_true", default=False)
+
+(options, args) = parser.parse_args()
+
+if len(args) < 1:
+    parser.error('no URL specified')
     sys.exit(0)
 
 # Generate the URL
-url = sys.argv[1].split('?', 1)[0]  # drop the stuff after the ?
-url += '/pledge/new'  # we want the pledge-editing page
-pledges = None  # The pledge amounts on the command line
-ids = None  # A list of IDs of the pledge levels
+url = args[0].split('?', 1)[0]  # drop the stuff after the ?
+url += '/pledge/new' # we want the pledge-editing page
+pledges = None   # The pledge amounts on the command line
+ids = None       # A list of IDs of the pledge levels
 selected = None  # A list of selected pledge levels
 rewards = None  # A list of valid reward levels
 if len(sys.argv) > 2:
-    pledges = map(float, sys.argv[2:])
+    pledges = map(float, args[1:])
 
 ks = KickstarterHTMLParser()
 
@@ -218,6 +229,8 @@ while True:
                 time.sleep(10)  # Give the web browser time to open
                 sys.exit(0)
             break
-    time.sleep(60)
+    if options.verbose:
+        print 'Waiting %u minutes ...' % options.delay
+    time.sleep(60 * options.delay)
 
     rewards = ks.process(url)
