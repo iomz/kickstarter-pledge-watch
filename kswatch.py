@@ -1,4 +1,4 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python3
 
 # Copyright 2013, Timur Tabi
 #
@@ -26,8 +26,8 @@
 import sys
 import os
 import time
-import urllib2
-import HTMLParser
+import requests
+from html.parser import HTMLParser
 from optparse import OptionParser
 
 USER_KEY = "USER_KEY_HERE"
@@ -53,36 +53,19 @@ PRIORITY = 1
 # (status, remaining) as the value.
 
 
-class KickstarterHTMLParser(HTMLParser.HTMLParser):
+class KickstarterHTMLParser(HTMLParser):
     def __init__(self):
-        HTMLParser.HTMLParser.__init__(self)
+        HTMLParser.__init__(self)
         self.in_li_block = False  # True == we're inside an <li class='...'> block
         self.in_desc_block = False  # True == we're inside a <p class="description short"> block
 
     def process(self, url):
-        while True:
-            try:
-                f = urllib2.urlopen(url)
-                break
-            except urllib2.HTTPError as e:
-                print 'HTTP Error', e
-            except urllib2.URLError as e:
-                print 'URL Error', e
-            except Exception as e:
-                print 'General Error', e
-
-            print 'Retrying in one minute'
-            time.sleep(60)
-
-        html = unicode(f.read(), 'utf-8')
-        f.close()
+        res = requests.get(url)
         self.rewards = []
-        self.feed(html)  # feed() starts the HTMLParser parsing
+        self.feed(res.text)  # feed() starts the HTMLParser parsing
         return self.rewards
 
     def handle_starttag(self, tag, attributes):
-        global status
-
         attrs = dict(attributes)
 
         # It turns out that we only care about tags that have a 'class' attribute
@@ -97,11 +80,7 @@ class KickstarterHTMLParser(HTMLParser.HTMLParser):
         # Extract the pledge amount (the cost)
         if self.in_li_block and tag == 'input' and 'pledge__radio' in attrs['class']:
             # remove everything except the actual number
-            amount = attrs['title'].encode('ascii', 'ignore')
-            nondigits = amount.translate(None, '0123456789.')
-            amount = amount.translate(None, nondigits)
-            # Convert the value into a float
-            self.value = float(amount)
+            self.value = str(attrs['title'].encode('ascii', 'ignore'))
             self.ident = attrs['id']  # Save the reward ID
 
         # We only care about certain kinds of reward levels -- those that
@@ -114,31 +93,27 @@ class KickstarterHTMLParser(HTMLParser.HTMLParser):
         if tag == 'li':
             if self.in_li_block:
                 self.rewards.append((self.value,
-                                     self.ident,
-                                     ' '.join(self.description.split())))
-            self.in_li_block = False
+                    self.ident,
+                    ' '.join(self.description.split())))
+                self.in_li_block = False
         if tag == 'h3':
             self.in_desc_block = False
 
     def handle_data(self, data):
         if self.in_desc_block:
-            self.description += self.unescape(data).encode('ascii', 'ignore')
+            self.description += str(self.unescape(data).encode('ascii', 'ignore'))
 
     def result(self):
         return self.rewards
 
 def push_message(message, url):
-    import httplib, urllib
-    conn = httplib.HTTPSConnection("api.pushover.net:443")
-    conn.request("POST", "/1/messages.json",
-                 urllib.urlencode({
-                     "token": APP_TOKEN,
-                     "user": USER_KEY,
-                     "priority": PRIORITY,
-                     "message": message,
-                     "url": url,
-                 }), {"Content-type": "application/x-www-form-urlencoded"})
-    conn.getresponse()
+    requests.post("https://api.pushover.net/1/messages.json", data={
+        "token": APP_TOKEN,
+        "user": USER_KEY,
+        "priority": PRIORITY,
+        "message": message,
+        "url": url,
+        })
 
 def pledge_menu(rewards):
     import re
@@ -147,12 +122,12 @@ def pledge_menu(rewards):
 
     # If there is only one qualifying pledge level, then just select it
     if count == 1:
-        print 'Automatically selecting the only limited award available:'
-        print '$%u %s' % (rewards[0][0], rewards[0][2][:74])
+        print('Automatically selecting the only limited award available:')
+        print('{} {}'.format(rewards[0][0], rewards[0][2][:74]))
         return rewards
 
     for i in xrange(count):
-        print '%u. $%u %s' % (i + 1, rewards[i][0], rewards[i][2][:70])
+        print('{}. {} {}'.format(i + 1, rewards[i][0], rewards[i][2][:70]))
 
     while True:
         try:
@@ -163,17 +138,17 @@ def pledge_menu(rewards):
             continue
 
 parser = OptionParser(usage="usage: %prog [options] project-url [cost-of-pledge ...]\n"
-                      "project-url is the URL of the Kickstarter project\n"
-                      "cost-of-pledge is the cost of the target pledge.\n"
-                      "If cost-of-pledge is not specified, then a menu of pledges is shown.\n"
-                      "Specify cost-of-pledge only if that amount is unique among pledges.\n"
-                      "Only restricted pledges are supported.")
+        "project-url is the URL of the Kickstarter project\n"
+        "cost-of-pledge is the cost of the target pledge.\n"
+        "If cost-of-pledge is not specified, then a menu of pledges is shown.\n"
+        "Specify cost-of-pledge only if that amount is unique among pledges.\n"
+        "Only restricted pledges are supported.")
 parser.add_option("-d", dest="delay",
-    help="delay, in minutes, between each check (default is 1)",
-    type="int", default=1)
+        help="delay, in minutes, between each check (default is 1)",
+        type="int", default=1)
 parser.add_option("-v", dest="verbose",
-    help="print a message before each delay",
-    action="store_true", default=False)
+        help="print a message before each delay",
+        action="store_true", default=False)
 
 (options, args) = parser.parse_args()
 
@@ -195,7 +170,7 @@ ks = KickstarterHTMLParser()
 
 rewards = ks.process(url)
 if not rewards:
-    print 'No unavailable limited rewards for this Kickstarter'
+    print('No unavailable limited rewards for this Kickstarter')
     sys.exit(0)
 
 # Select the pledge level(s)
@@ -207,22 +182,22 @@ else:
     selected = pledge_menu(rewards)
 
 if not selected:
-    print 'No reward selected.'
+    print('No reward selected.')
     sys.exit(0)
 
-print '\nSelected rewards:'
+print('\nSelected rewards:')
 for s in selected:
-    print s[2]
+    print(s[2])
 
-print '\nSending test push to make sure everything is OK'
+print('\nSending test push to make sure everything is OK')
 push_message('This is a Test!', url)
 
-print '\nWatching...'
+print('\nWatching...')
 while True:
     for s in selected:
         if not s[1] in [r[1] for r in rewards]:
-            print '%s - Reward available!' % time.strftime('%B %d, %Y %I:%M %p')
-            print s[2]
+            print('{} - Reward available!'.format(time.strftime('%B %d, %Y %I:%M %p')))
+            print(s[2])
             push_message('Kickstarter Reward available!', url)
             selected = [x for x in selected if x != s]  # Remove the pledge we just found
             if not selected:  # If there are no more pledges to check, then exit
@@ -230,7 +205,7 @@ while True:
                 sys.exit(0)
             break
     if options.verbose:
-        print 'Waiting %u minutes ...' % options.delay
+        print('Waiting {} minutes ...'.format(options.delay))
     time.sleep(60 * options.delay)
 
     rewards = ks.process(url)
