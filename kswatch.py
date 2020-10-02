@@ -23,12 +23,16 @@
 # arising in any way out of the use of this software, even if advised of
 # the possibility of such damage.
 
-import sys
 import os
+import sys
 import time
-import requests
+from html import unescape
 from html.parser import HTMLParser
+from lxml.html import fromstring
 from optparse import OptionParser
+
+import configparser
+import requests
 
 USER_KEY = "USER_KEY_HERE"
 APP_TOKEN = "APP_TOKEN_HERE"
@@ -58,9 +62,11 @@ class KickstarterHTMLParser(HTMLParser):
         HTMLParser.__init__(self)
         self.in_li_block = False  # True == we're inside an <li class='...'> block
         self.in_desc_block = False  # True == we're inside a <p class="description short"> block
+        self.name = ''
 
     def process(self, url):
         res = requests.get(url)
+        self.name = fromstring(res.content).findtext('.//title')
         self.rewards = []
         self.feed(res.text)  # feed() starts the HTMLParser parsing
         return self.rewards
@@ -80,7 +86,7 @@ class KickstarterHTMLParser(HTMLParser):
         # Extract the pledge amount (the cost)
         if self.in_li_block and tag == 'input' and 'pledge__radio' in attrs['class']:
             # remove everything except the actual number
-            self.value = str(attrs['title'].encode('ascii', 'ignore'))
+            self.value = attrs['title'].encode('ascii', 'ignore').decode()
             self.ident = attrs['id']  # Save the reward ID
 
         # We only care about certain kinds of reward levels -- those that
@@ -101,7 +107,7 @@ class KickstarterHTMLParser(HTMLParser):
 
     def handle_data(self, data):
         if self.in_desc_block:
-            self.description += str(self.unescape(data).encode('ascii', 'ignore'))
+            self.description += unescape(data).encode('ascii', 'ignore').decode()
 
     def result(self):
         return self.rewards
@@ -123,11 +129,11 @@ def pledge_menu(rewards):
     # If there is only one qualifying pledge level, then just select it
     if count == 1:
         print('Automatically selecting the only limited award available:')
-        print('{} {}'.format(rewards[0][0], rewards[0][2][:74]))
+        print('{0} {1}'.format(rewards[0][0], rewards[0][2][:74]))
         return rewards
 
     for i in xrange(count):
-        print('{}. {} {}'.format(i + 1, rewards[i][0], rewards[i][2][:70]))
+        print('{0}. {1} {2}'.format(i + 1, rewards[i][0], rewards[i][2][:70]))
 
     while True:
         try:
@@ -149,12 +155,24 @@ parser.add_option("-d", dest="delay",
 parser.add_option("-v", dest="verbose",
         help="print a message before each delay",
         action="store_true", default=False)
+parser.add_option("-c", dest="config_file",
+        help="set the config file for credentials",
+        type="string", default="kswatch.conf")
 
 (options, args) = parser.parse_args()
 
 if len(args) < 1:
     parser.error('no URL specified')
     sys.exit(0)
+
+# Read the Pushover credentials from the config file
+config = configparser.ConfigParser()
+config.read(options.config_file)
+try:
+    USER_KEY = config['pushover']['user_key']
+    APP_TOKEN = config['pushover']['app_token']
+except:
+    pass
 
 # Generate the URL
 url = args[0].split('?', 1)[0]  # drop the stuff after the ?
@@ -187,17 +205,17 @@ if not selected:
 
 print('\nSelected rewards:')
 for s in selected:
-    print(s[2])
+    print("{0}".format(s[2]))
 
 print('\nSending test push to make sure everything is OK')
-push_message('This is a Test!', url)
+push_message('Start watching: {}'.format(ks.name.strip()), url)
 
 print('\nWatching...')
 while True:
     for s in selected:
         if not s[1] in [r[1] for r in rewards]:
             print('{} - Reward available!'.format(time.strftime('%B %d, %Y %I:%M %p')))
-            print(s[2])
+            print(string(s[2]))
             push_message('Kickstarter Reward available!', url)
             selected = [x for x in selected if x != s]  # Remove the pledge we just found
             if not selected:  # If there are no more pledges to check, then exit
