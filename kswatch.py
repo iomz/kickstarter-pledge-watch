@@ -161,10 +161,6 @@ parser.add_option("-c", dest="config_file",
 
 (options, args) = parser.parse_args()
 
-if len(args) < 1:
-    parser.error('no URL specified')
-    sys.exit(0)
-
 # Read the Pushover credentials from the config file
 config = configparser.ConfigParser()
 config.read(options.config_file)
@@ -174,8 +170,14 @@ try:
 except:
     pass
 
+url = os.environ.get('KS_PROJ')
+if len(args) >= 1:
+    url = args[0].split('?', 1)[0]  # drop the stuff after the ?
+elif url is None and len(args) < 1:
+    parser.error('no URL specified')
+    sys.exit(0)
+
 # Generate the URL
-url = args[0].split('?', 1)[0]  # drop the stuff after the ?
 url += '/pledge/new' # we want the pledge-editing page
 pledges = None   # The pledge amounts on the command line
 ids = None       # A list of IDs of the pledge levels
